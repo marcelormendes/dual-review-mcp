@@ -129,29 +129,61 @@ export function mergeAndScore(cursor: ReviewPayload, claude: ReviewPayload): Mer
 /**
  * Render a concise Markdown report combining both reviews and merge metrics.
  */
-export function renderMarkdown(cursor: ReviewPayload, claude: ReviewPayload, merge: MergeResult): string {
+export function renderMarkdown(
+  cursor: ReviewPayload,
+  claude: ReviewPayload,
+  merge: MergeResult,
+  options?: { compact?: boolean },
+): string {
   const summarize = (r: ReviewPayload): string => {
     const c = r.summary?.counts ?? { low: 0, med: 0, high: 0 }
     return `Issues: ${r.issues.length} | High: ${c.high ?? 0}, Med: ${c.med ?? 0}, Low: ${c.low ?? 0}`
   }
 
+  const formatIssue = (i: ReviewIssue): string => {
+    const at = typeof i.line === 'number' ? `:${i.line}` : ''
+    return `- [${i.severity.toUpperCase()}][${i.category}] ${i.file}${at} — ${i.message}\n  Fix: ${i.fix}`
+  }
+
+  if (options?.compact) {
+    // Compact summary: counts + top 5 union priorities
+    const key = (x: ReviewIssue) => `${x.category}|${x.file}|${x.message}`
+    const unionMap = new Map<string, ReviewIssue>()
+    ;[...cursor.issues, ...claude.issues].forEach(i => {
+      const k = key(i)
+      if (!unionMap.has(k)) unionMap.set(k, i)
+    })
+
+    const counts = { low: 0, med: 0, high: 0 }
+    for (const i of unionMap.values()) counts[i.severity]++
+    const scoreIssue = (x: ReviewIssue) => severityWeight[x.severity] * 1.0 + categoryWeight[x.category] * 0.5
+    const top = [...unionMap.values()].sort((a, b) => scoreIssue(b) - scoreIssue(a)).slice(0, 5)
+
+    return `# Dual Review Report\n\n**Score:** ${merge.score}/10\n\n## Compact Summary\nTotal — High: ${counts.high}, Med: ${counts.med}, Low: ${counts.low}\n\nTop priorities:\n${top.map(formatIssue).join('\n') || '- (none)'}\n`.trim()
+  }
+
+  // Full report: include complete reviewer outputs and full overlap keys
   const md = `# Dual Review Report
 
 **Score:** ${merge.score}/10
 
-## Cursor Review
+## Cursor Review (full)
 ${summarize(cursor)}
 
-## Claude Review
+${cursor.issues.map(formatIssue).join('\n') || '- (none)'}
+
+## Claude Review (full)
 ${summarize(claude)}
+
+${claude.issues.map(formatIssue).join('\n') || '- (none)'}
 
 ## Overlap
 Matched: ${merge.overlap} of ${merge.union} unique issues
 
-## Cursor-only (first 50)
+## Cursor-only (all)
 ${merge.cursorOnlyKeys.map(s => `- ${s}`).join('\n') || '- (none)'}
 
-## Claude-only (first 50)
+## Claude-only (all)
 ${merge.claudeOnlyKeys.map(s => `- ${s}`).join('\n') || '- (none)'}
 `.trim()
 
