@@ -12,6 +12,70 @@ const server = new McpServer({
   version: "0.1.0",
 })
 
+function runZeroArgAlias(): { content: { type: 'text', text: string }[] } {
+  const diff = execSync("git diff --cached", { encoding: "utf8", maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES })
+
+  const cursorArgs: string[] = [
+    DEFAULT_PROMPT_ARG,
+    REVIEW_PROMPT,
+    ...DEFAULT_OUTPUT_JSON_ARGS,
+  ]
+  const pCursor: SpawnSyncReturns<string> = spawnSync("cursor", cursorArgs, {
+    input: diff,
+    encoding: "utf8",
+    maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES,
+    env: process.env,
+  })
+  if (pCursor.status !== 0) {
+    const stderrText = pCursor.stderr
+    throw new Error(stderrText || "cursor CLI failed")
+  }
+  const cursorJsonText: string = pCursor.stdout.trim()
+
+  const claudeArgs = [DEFAULT_PROMPT_ARG, REVIEW_PROMPT, ...DEFAULT_OUTPUT_JSON_ARGS]
+  const pClaude: SpawnSyncReturns<string> = spawnSync("claude", claudeArgs, {
+    input: diff,
+    encoding: "utf8",
+    maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES,
+    env: process.env,
+  })
+  if (pClaude.status !== 0) {
+    const stderrText = pClaude.stderr
+    throw new Error(stderrText || "claude CLI failed")
+  }
+  const claudeJsonText: string = pClaude.stdout.trim()
+
+  const schema = z.object({
+    issues: z.array(
+      z.object({
+        category: z.enum(["security", "correctness", "reliability", "architecture", "performance", "tests", "docs"]),
+        severity: z.enum(["low", "med", "high"]),
+        file: z.string(),
+        line: z.number().optional(),
+        message: z.string(),
+        fix: z.string(),
+      })
+    ),
+    summary: z.object({
+      counts: z.object({ low: z.number(), med: z.number(), high: z.number() }),
+    }),
+  })
+  schema.parse(JSON.parse(cursorJsonText))
+  schema.parse(JSON.parse(claudeJsonText))
+
+  const a = parseReviewPayload(cursorJsonText)
+  const b = parseReviewPayload(claudeJsonText)
+  const merged = mergeAndScore(a, b)
+  const md = renderMarkdown(a, b, merged)
+
+  return {
+    content: [
+      { type: "text", text: JSON.stringify({ score: merged.score }) },
+      { type: "text", text: md },
+    ],
+  }
+}
+
 server.tool(
   "git_diff",
   {
@@ -23,7 +87,7 @@ server.tool(
   },
   (args: unknown): { content: { type: 'text', text: string }[] } => {
     const input = z.object({ staged: z.boolean().optional().default(true) }).parse(args)
-    const cmd = input.staged ? "git diff --staged" : "git diff"
+    const cmd = input.staged ? "git diff --cached" : "git diff"
     const out = execSync(cmd, { encoding: "utf8", maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES })
     return { content: [{ type: "text", text: out || "" }] }
   }
@@ -199,6 +263,135 @@ server.tool(
 
     return { content: [{ type: "text", text: outText }] }
   }
+)
+
+// One-shot runner for zero-config usage (no Project Rule needed):
+// - Gets git diff
+// - Runs Claude CLI review
+// - Runs a second CLI review (e.g., cursor/codex/openai)
+// - Merges and returns score + markdown
+server.tool(
+  "run_dual_review",
+  {
+    description: "One-shot dual review: git diff + Claude + secondary CLI + merged report",
+    inputSchema: {
+      type: "object",
+      properties: {
+        staged: { type: "boolean", default: true },
+        claudeModel: { type: "string", description: "Claude model override" },
+        secondaryCommand: { type: "string", description: "Binary name for second reviewer (cursor/codex/openai)" },
+        secondaryModel: { type: "string", description: "Model for second reviewer" },
+        promptArgName: { type: "string", default: "-p" },
+        outputJsonArgs: { type: "array", items: { type: "string" }, default: ["--output-format", "json"] },
+        modelArgName: { type: "string", default: "--model" },
+        extraArgs: { type: "array", items: { type: "string" }, default: [] },
+      },
+    },
+  },
+  (raw: unknown): { content: { type: 'text', text: string }[] } => {
+    const input = z.object({
+      staged: z.boolean().optional().default(true),
+      claudeModel: z.string().optional(),
+      secondaryCommand: z.string().optional().default('cursor'),
+      secondaryModel: z.string().optional(),
+      promptArgName: z.string().default('-p'),
+      outputJsonArgs: z.array(z.string()).default(["--output-format", "json"]),
+      modelArgName: z.string().default('--model'),
+      extraArgs: z.array(z.string()).default([]),
+    }).parse(raw)
+
+    // 1) Diff
+    const diffCmd = input.staged ? "git diff --cached" : "git diff"
+    const diff = execSync(diffCmd, { encoding: "utf8", maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES })
+
+    // 2) Claude review
+    const claudeArgs = [DEFAULT_PROMPT_ARG, REVIEW_PROMPT, ...DEFAULT_OUTPUT_JSON_ARGS]
+    const modelToUse = input.claudeModel ?? env.DUAL_REVIEW_DEFAULT_MODEL
+    if (modelToUse) claudeArgs.push(DEFAULT_MODEL_ARG, modelToUse)
+    const pClaude: SpawnSyncReturns<string> = spawnSync("claude", claudeArgs, {
+      input: diff,
+      encoding: "utf8",
+      maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES,
+      env: process.env,
+    })
+    if (pClaude.status !== 0) {
+      const stderrText = pClaude.stderr
+      throw new Error(stderrText || "claude CLI failed")
+    }
+    const claudeJsonText: string = pClaude.stdout.trim()
+
+    // 3) Secondary CLI review
+    const secArgs: string[] = [
+      input.promptArgName,
+      REVIEW_PROMPT,
+      ...input.outputJsonArgs,
+      ...input.extraArgs,
+    ]
+    if (input.secondaryModel) secArgs.push(input.modelArgName, input.secondaryModel)
+    const pSec: SpawnSyncReturns<string> = spawnSync(input.secondaryCommand, secArgs, {
+      input: diff,
+      encoding: "utf8",
+      maxBuffer: env.DUAL_REVIEW_STDIO_MAX_BUFFER ?? DEFAULT_STDIO_BUFFER_BYTES,
+      env: process.env,
+    })
+    if (pSec.status !== 0) {
+      const stderrText = pSec.stderr
+      throw new Error(stderrText || `${input.secondaryCommand} failed`)
+    }
+    const secondaryJsonText: string = pSec.stdout.trim()
+
+    // Validate shape (reuse schema from above anonymously)
+    const schema = z.object({
+      issues: z.array(
+        z.object({
+          category: z.enum(["security", "correctness", "reliability", "architecture", "performance", "tests", "docs"]),
+          severity: z.enum(["low", "med", "high"]),
+          file: z.string(),
+          line: z.number().optional(),
+          message: z.string(),
+          fix: z.string(),
+        })
+      ),
+      summary: z.object({
+        counts: z.object({ low: z.number(), med: z.number(), high: z.number() }),
+      }),
+    })
+    schema.parse(JSON.parse(claudeJsonText))
+    schema.parse(JSON.parse(secondaryJsonText))
+
+    // 4) Merge
+    const a = parseReviewPayload(secondaryJsonText)
+    const b = parseReviewPayload(claudeJsonText)
+    const merged = mergeAndScore(a, b)
+    const md = renderMarkdown(a, b, merged)
+
+    return {
+      content: [
+        { type: "text", text: JSON.stringify({ score: merged.score }) },
+        { type: "text", text: md },
+      ],
+    }
+  }
+)
+
+// Simplest zero-arg alias: staged diff → Cursor CLI → Claude CLI → merged report
+server.tool(
+  "dual_review_now",
+  {
+    description: "Run staged diff through Cursor CLI then Claude CLI and return merged report (no args)",
+    inputSchema: { type: "object", properties: {} },
+  },
+  (): { content: { type: 'text', text: string }[] } => runZeroArgAlias()
+)
+
+// Preferred alias: "dual-review"
+server.tool(
+  "dual-review",
+  {
+    description: "Run staged diff through Cursor CLI then Claude CLI and return merged report (no args)",
+    inputSchema: { type: "object", properties: {} },
+  },
+  (): { content: { type: 'text', text: string }[] } => runZeroArgAlias()
 )
 
 const transport = new StdioServerTransport()

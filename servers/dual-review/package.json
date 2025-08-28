@@ -1,18 +1,28 @@
 {
   "name": "dual-review-mcp",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
-  "private": true,
+  "private": false,
   "bin": {
     "dual-review-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "tsc",
     "start": "node dist/index.js",
     "dev": "node --watch dist/index.js",
     "lint": "eslint --max-warnings 0 \"src/**/*.ts\"",
     "test": "vitest run"
   },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.23.8"
@@ -27,4 +37,3 @@
     "vitest": "^2.1.5"
   }
 }
-

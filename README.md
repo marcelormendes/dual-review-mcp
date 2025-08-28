@@ -4,14 +4,48 @@ Overview
 
 This repository provides a production-grade MCP (Model Context Protocol) server for Cursor that performs a dual code review over the current Git diff:
 
-- Gets the current Git diff (staged by default)
+- Gets the current Git diff (staged via `git diff --cached`)
 - Requests a JSON review from Cursor’s model (via a Cursor Project Rule)
 - Requests a second JSON review from Claude Code CLI (headless, JSON-only)
 - Merges both results into a single Markdown report and computes a 1–10 score
 
 The scoring is severity-weighted and tuned for NestJS/Event-driven architectures.
 
-Quickstart
+Install via NPX (recommended)
+
+Add this to your repo’s `.cursor/mcp.json`:
+
+```
+{
+  "mcpServers": {
+    "dual-review": {
+      "command": "npx",
+      "args": ["-y", "dual-review-mcp@latest"]
+    }
+  }
+}
+```
+
+Notes:
+- Current latest: 0.1.2 (you can pin to `dual-review-mcp@0.1.2` if you prefer).
+- If Cursor can’t find `npx`, use its absolute path (e.g., `/opt/homebrew/bin/npx`).
+
+Using in Cursor chat
+
+- Zero‑arg alias (no configuration):
+  - `Run tool dual-review:dual-review`
+- Flexible one‑shot (defaults provided; `secondaryCommand` defaults to `"cursor"`):
+  - `Run tool dual-review:run_dual_review`
+- To use another CLI instead of Cursor:
+  - `Run tool dual-review:run_dual_review {"secondaryCommand":"codex"}`
+
+Requirements
+
+- Claude Code CLI installed and authenticated; `ANTHROPIC_API_KEY` exported
+- Cursor CLI installed for the default secondary review
+- Staged changes in your repo (`git add -A`)
+
+Local Quickstart
 
 1) Install prerequisites
 
@@ -40,7 +74,7 @@ pnpm start
 
 Cursor will pick up the MCP config from `.cursor/mcp.json` in this repo. Ensure the path to `servers/dual-review/dist/index.js` remains valid.
 
-5) Use the Project Rule
+5) Use the Project Rule (optional)
 
 The rule in `.cursor/rules/dual-review.mdc` orchestrates the workflow inside Cursor chat: it fetches the Git diff, asks Cursor’s model for a JSON review, calls the MCP tool to ask Claude for a second JSON review, then merges and renders the combined report.
 
@@ -110,12 +144,12 @@ pnpm build
 4) Run the standard dual review (Cursor + Claude)
 
 - In Cursor chat, run the Project Rule “Dual Review” (from `.cursor/rules/dual-review.mdc`). The rule:
-  - Fetches the staged git diff (`dual-review:git_diff`)
+  - Fetches the staged git diff (`dual-review:git_diff` → uses `--cached`)
   - Asks Cursor’s model to produce a JSON review (schema enforced in the rule)
   - Calls `dual-review:review_with_claude` to get Claude’s JSON review
   - Calls `dual-review:compare_reviews` to compute score and render the Markdown report
 
-5) Reverse direction or other CLIs (Claude + Cursor/Codex/OpenAI)
+6) Reverse direction or other CLIs (Claude + Cursor/Codex/OpenAI)
 
 - Use the generic tool `dual-review:review_with_command` to run any CLI in JSON-only mode. Example:
 
@@ -135,7 +169,7 @@ Args:
 
 - Then pass the resulting JSON alongside Claude’s JSON into `dual-review:compare_reviews`.
 
-6) Local manual run (optional)
+7) Local manual run (optional)
 
 ```
 pnpm start
@@ -145,9 +179,10 @@ This starts the MCP stdio server; Cursor normally manages this automatically.
 
 Troubleshooting
 
+- “No tools or prompts” in Cursor Tools: point `.cursor/mcp.json` `command` to your absolute `npx` binary path; ensure network can fetch npm.
 - “claude: command not found”: ensure Claude CLI is installed and on PATH; ensure `ANTHROPIC_API_KEY` is set and valid.
 - “Invalid JSON” in reviews: re-run the reviewer step; the rule enforces a strict schema, so any deviation will be rejected.
-- “No issues found / empty diff”: ensure you have staged changes; try `git add -p` and re-run.
+- “No issues found / empty diff”: ensure you have staged changes; try `git add -A` and re-run.
 - MCP server not visible in Cursor: close and reopen the project or reload MCP Tools; ensure `.cursor/mcp.json` path is valid.
 
 

@@ -1,6 +1,6 @@
 {
   "name": "dual-review-mcp-workspace",
-  "private": true,
+  "private": false,
   "version": "0.1.0",
   "scripts": {
     "lint": "pnpm -r --filter ./servers/dual-review lint",
