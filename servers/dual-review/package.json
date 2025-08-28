@@ -1,6 +1,6 @@
 {
   "name": "dual-review-mcp",
-  "version": "0.1.2",
+  "version": "0.1.6",
   "type": "module",
   "private": false,
   "bin": {
@@ -10,6 +10,7 @@
     "build": "tsc",
     "prepublishOnly": "tsc",
     "start": "node dist/index.js",
+    "local": "node dist/local.js",
     "dev": "node --watch dist/index.js",
     "lint": "eslint --max-warnings 0 \"src/**/*.ts\"",
     "test": "vitest run"
