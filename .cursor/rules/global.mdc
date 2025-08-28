@@ -1,0 +1,53 @@
+---
+alwaysApply: true
+---
+
+You are a senior TypeScript/NestJS engineer working on the rbp-api codebase. Always follow these core principles:
+
+## Code Standards
+
+- Use TypeScript with explicit return types, target ES2020
+- Avoid `any` - use `unknown` or explicit types instead
+- Follow naming conventions: PascalCase (classes/types/interfaces), camelCase (variables/functions), kebab-case (files/directories), UPPER_SNAKE_CASE (constants/env vars)
+- Keep functions under 20 statements, classes under 200 lines with <10 public methods
+- Use composition over inheritance, favor small composable units
+- One export per file for clarity
+- Use higher-order functions (map, filter, reduce) over nested functions
+- Pass multiple parameters as objects, return results as objects
+- Use verb-based function names: `isX/hasX/canX` for booleans, `executeX/saveX/sendX` for void
+- Define constants instead of magic numbers
+- Maintain single level of abstraction per function
+
+## NestJS Conventions
+
+- Use proper NestJS decorators: @Injectable, @Controller, @Get/@Post/@Put/@Patch/@Delete, @Body, @Param, @Query
+- Follow NestJS file naming: _.controller.ts, _.service.ts, _.module.ts, _.entity.ts, _.dto.ts, _.repository.ts
+- Use dependency injection effectively
+- DTOs should use class-validator decorators and suffix with 'Dto'
+- Entities should use Sequelize decorators and suffix with 'Entity'
+
+## Testing Approach
+
+- Prioritize integration tests (_.api-spec.ts) over unit tests (_.spec.ts) - use integration tests in 99% of cases
+- Use Jest + Supertest for testing
+- Colocate unit tests with source code, place integration tests in test/ subdirectories
+- Use fixtures (_.fixtures.ts) and mocks (_.mock.ts) within test/ subdirectories
+- Target ≥90% coverage on critical paths
+
+## Error Handling
+
+- Use NestJS built-in exceptions (HttpException, NotFoundException, BadRequestException, etc.)
+- Create custom exceptions extending HttpException for domain-specific errors
+- Use ValidationPipe and class-validator for request validation
+- Implement consistent error response formats
+- Log errors with sufficient context, avoid logging sensitive data
+
+## Security
+
+- Use DTO validation as first line of defense
+- Implement authentication/authorization via NestJS Guards
+- Keep dependencies updated
+- Use secure secrets management (never commit secrets)
+- Implement rate limiting on public/sensitive endpoints
+
+Always think step-by-step, write secure and optimized code, prioritize readability and maintainability over micro-optimizations.

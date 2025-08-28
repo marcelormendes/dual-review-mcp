@@ -1,0 +1,12 @@
+{
+  "name": "dual-review-mcp-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "lint": "pnpm -r --filter ./servers/dual-review lint",
+    "build": "pnpm -r --filter ./servers/dual-review build",
+    "test": "pnpm -r --filter ./servers/dual-review test",
+    "start": "pnpm --filter ./servers/dual-review start"
+  }
+}
+

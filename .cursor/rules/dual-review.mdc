@@ -1,0 +1,48 @@
+# Dual Review (Cursor + Claude Code)
+
+Goal
+
+Generate a combined code review for the current Git diff by:
+
+1) Getting the staged Git diff
+2) Asking Cursor’s model for a JSON review
+3) Asking Claude Code CLI (headless) for a JSON review
+4) Merging both into a severity‑weighted Markdown report with a 1–10 score
+
+Schema (both reviewers MUST output exactly this JSON structure)
+
+```
+{
+  "issues": [
+    {
+      "category": "security|correctness|reliability|architecture|performance|tests|docs",
+      "severity": "low|med|high",
+      "file": "path",
+      "line": 123,
+      "message": "problem summary",
+      "fix": "specific actionable fix"
+    }
+  ],
+  "summary": { "counts": { "low": 0, "med": 0, "high": 0 } }
+}
+```
+
+Stack focus (apply when reviewing): NestJS + Node.js + TypeScript + Postgres + Sequelize, event‑driven/CQRS patterns, DTO/class‑validator, AuthZ/AuthN, transactions & idempotency, repository separation, error handling & observability, N+1/perf, tests, docs/readability.
+
+Workflow
+
+1) Call MCP tool `dual-review:git_diff` with `{ staged: true }`. Save output as `diff`.
+
+2) Ask Cursor’s model to review the `diff` and return ONLY valid JSON matching the schema above. Name the JSON string `cursorJson`.
+
+3) Call MCP tool `dual-review:review_with_claude` with `{ diff: diff }` (optionally pass `model`). Save stdout JSON as `claudeJson`.
+
+4) Call MCP tool `dual-review:compare_reviews` with `{ cursorJson, claudeJson }`.
+   - The tool returns two text parts: a JSON string like `{ "score": <1..10> }` and a Markdown report. Render the Markdown.
+
+5) If any reviewer produced invalid JSON, request a re‑run for that reviewer step ONLY until the JSON validates. Then continue.
+
+Output
+
+- Post only the final Markdown report. If score < 7, prepend a brief warning line.
+
